@@ -1,0 +1,292 @@
+describe ModOrganizer do
+
+  shared_examples 'a ModOrganizer instance' do
+
+    context 'when validating ini file reading' do
+
+      it 'returns the game path' do
+        setup_mo(ini: { General: { gamePath: 'C:/path/to/Skyrim Special Edition' } })
+        expect(mod_organizer.game_path).to eq 'C:/path/to/Skyrim Special Edition'
+      end
+
+      it 'returns the game path from a ByteArray' do
+        setup_mo(ini: { General: { gamePath: '@ByteArray(C:\\\\path\\\\to\\\\Skyrim Special Edition)' } })
+        expect(mod_organizer.game_path).to eq 'C:/path/to/Skyrim Special Edition'
+      end
+
+      it 'returns the downloads directory from the ini file' do
+        setup_mo(ini: { Settings: { download_directory: '/path/to/downloads' } })
+        expect(mod_organizer.downloads_dir).to eq '/path/to/downloads'
+      end
+
+      it 'returns mod names from the mods directory specified in the ini file' do
+        mods_dir = "#{Dir.tmpdir}/ModOrganizerTest/AlternativeMods"
+        setup_mo(ini: { Settings: { mod_directory: mods_dir } })
+        FileUtils.mkdir_p("#{mods_dir}/TestMod1")
+        FileUtils.mkdir_p("#{mods_dir}/TestMod2")
+        expect(mod_organizer.mod_names.sort).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'retrieves the modlist from the profiles directory and the profile specified in the ini file' do
+        setup_mo(
+          ini: {
+            Settings: { profiles_directory: "#{Dir.tmpdir}/ModOrganizerTest/AlternativeProfiles" },
+            General: { selected_profile: 'TestProfile' }
+          }
+        )
+        FileUtils.mkdir_p("#{Dir.tmpdir}/ModOrganizerTest/AlternativeProfiles/TestProfile")
+        File.write(
+          "#{Dir.tmpdir}/ModOrganizerTest/AlternativeProfiles/TestProfile/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod2
+            +TestMod1
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.mods_list).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'retrieves a download by its file name from the downloads directory specified in the ini file' do
+        downloads_dir = "#{Dir.tmpdir}/ModOrganizerTest/AlternativeDownloads"
+        setup_mo(ini: { Settings: { download_directory: downloads_dir } })
+        FileUtils.mkdir_p(downloads_dir)
+        downloaded_file = "#{downloads_dir}/TestMod.7z"
+        File.write(downloaded_file, 'TestMod downloaded content')
+        expect(mod_organizer.download(file_name: 'TestMod.7z').downloaded_file_path).to eq downloaded_file
+      end
+
+    end
+
+    context 'with the default ini file' do
+
+      before do
+        setup_mo
+      end
+
+      it 'returns the default downloads directory' do
+        expect(mod_organizer.downloads_dir).to eq "#{instance_dir}/downloads"
+      end
+
+      it 'runs ModOrganizer' do
+        mo_run_from = nil
+        expect(mod_organizer).to receive(:system).with('ModOrganizer.exe') do
+          mo_run_from = Dir.pwd
+        end
+        mod_organizer.run
+        expect(mo_run_from).to eq instance_dir
+      end
+
+      it 'returns mod names from the default mods directory' do
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod1")
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod2")
+        expect(mod_organizer.mod_names.sort).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'returns mod names without considering files' do
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod1")
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod2")
+        File.write("#{instance_dir}/mods/WrongMod", 'File content')
+        expect(mod_organizer.mod_names.sort).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'caches mod names returned' do
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod1")
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod2")
+        expect(mod_organizer.mod_names.sort).to eq %w[TestMod1 TestMod2]
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod3")
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod4")
+        expect(mod_organizer.mod_names.sort).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'retrieves a mod by its name' do
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod")
+        expect(mod_organizer.mod(name: 'TestMod').name).to eq 'TestMod'
+      end
+
+      it 'does not retrieve an unknown mod' do
+        expect(mod_organizer.mod(name: 'UnknownMod')).to be_nil
+      end
+
+      it 'caches mods being retrieved' do
+        FileUtils.mkdir_p("#{instance_dir}/mods/TestMod")
+        expect(mod_organizer.mod(name: 'TestMod').name).to eq 'TestMod'
+        FileUtils.rm_rf("#{instance_dir}/mods/TestMod")
+        expect(mod_organizer.mod(name: 'TestMod').name).to eq 'TestMod'
+      end
+
+      it 'retrieves the modlist of the default profile' do
+        FileUtils.mkdir_p("#{instance_dir}/profiles/Default")
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            # This file was automatically generated by Mod Organizer.
+            -TestMod2
+            +TestMod1
+            *Creation Club: ccBGSSSE001-Fish
+            *Creation Club: ccBGSSSE025-AdvDSGS
+            *Creation Club: ccBGSSSE037-Curios
+            *Creation Club: ccQDRSSE001-SurvivalMode
+            *DLC: Dawnguard
+            *DLC: Dragonborn
+            *DLC: HearthFires
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.mods_list).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'caches the modlist being retrieved' do
+        FileUtils.mkdir_p("#{instance_dir}/profiles/Default")
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod2
+            +TestMod1
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.mods_list).to eq %w[TestMod1 TestMod2]
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod4
+            +TestMod3
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.mods_list).to eq %w[TestMod1 TestMod2]
+      end
+
+      it 'returns the list of enabled mods' do
+        FileUtils.mkdir_p("#{instance_dir}/profiles/Default")
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod4
+            +TestMod3
+            -TestMod2
+            +TestMod1
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.enabled_mods).to eq %w[TestMod1 TestMod3]
+      end
+
+      it 'caches the list of enabled mods' do
+        FileUtils.mkdir_p("#{instance_dir}/profiles/Default")
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod2
+            +TestMod1
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.enabled_mods).to eq %w[TestMod1]
+        File.write(
+          "#{instance_dir}/profiles/Default/modlist.txt",
+          <<~EO_MOD_LIST
+            -TestMod4
+            +TestMod3
+          EO_MOD_LIST
+        )
+        expect(mod_organizer.enabled_mods).to eq %w[TestMod1]
+      end
+
+      it 'returns the default list of categories' do
+        expect(mod_organizer.categories.sort.to_a[0..4].to_h).to eq(
+          {
+            1 => 'Animations',
+            2 => 'Armour',
+            3 => 'Audio',
+            4 => 'Cities',
+            5 => 'Clothing'
+          }
+        )
+      end
+
+      it 'returns the list of categories specific to the ModOrganizer instance' do
+        File.write(
+          "#{instance_dir}/categories.dat",
+          <<~EO_CATEGORIES
+            1|TestAnimations|4,51|0
+            2|TestArmour|5,54|0
+          EO_CATEGORIES
+        )
+        expect(mod_organizer.categories).to eq(
+          {
+            1 => 'TestAnimations',
+            2 => 'TestArmour'
+          }
+        )
+      end
+
+      it 'caches categories returned' do
+        File.write(
+          "#{instance_dir}/categories.dat",
+          <<~EO_CATEGORIES
+            1|TestAnimations|4,51|0
+            2|TestArmour|5,54|0
+          EO_CATEGORIES
+        )
+        expect(mod_organizer.categories).to eq(
+          {
+            1 => 'TestAnimations',
+            2 => 'TestArmour'
+          }
+        )
+        File.write(
+          "#{instance_dir}/categories.dat",
+          <<~EO_CATEGORIES
+            1|TestOtherAnimations|4,51|0
+            2|TestOtherArmour|5,54|0
+            3|TestOtherCities|5,54|0
+          EO_CATEGORIES
+        )
+        expect(mod_organizer.categories).to eq(
+          {
+            1 => 'TestAnimations',
+            2 => 'TestArmour'
+          }
+        )
+      end
+
+      it 'retrieves a download by its file name' do
+        FileUtils.mkdir_p("#{instance_dir}/downloads")
+        downloaded_file = "#{instance_dir}/downloads/TestMod.7z"
+        File.write(downloaded_file, 'TestMod downloaded content')
+        expect(mod_organizer.download(file_name: 'TestMod.7z').downloaded_file_path).to eq downloaded_file
+      end
+
+      it 'does not retrieve a download for an unknown file' do
+        expect(mod_organizer.download(file_name: 'UnknownMod.7z')).to be_nil
+      end
+
+      it 'caches a download returned' do
+        FileUtils.mkdir_p("#{instance_dir}/downloads")
+        downloaded_file = "#{instance_dir}/downloads/TestMod.7z"
+        File.write(downloaded_file, 'TestMod downloaded content')
+        expect(mod_organizer.download(file_name: 'TestMod.7z').downloaded_file_path).to eq downloaded_file
+        File.unlink(downloaded_file)
+        expect(mod_organizer.download(file_name: 'TestMod.7z')).not_to be_nil
+      end
+
+    end
+
+  end
+
+  context 'with a portable installation' do
+
+    it_behaves_like 'a ModOrganizer instance' do
+      before do
+        @instance_name = nil
+      end
+    end
+
+  end
+
+  context 'with a shared installation' do
+
+    it_behaves_like 'a ModOrganizer instance' do
+      before do
+        @instance_name = 'TestInstance'
+      end
+    end
+
+  end
+
+end
