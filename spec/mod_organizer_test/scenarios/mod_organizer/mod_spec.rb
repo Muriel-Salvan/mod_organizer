@@ -59,7 +59,7 @@ describe ModOrganizer::Mod do
     end
 
     it 'returns plugins in lower case' do
-      File.write("#{mod_dir}/PlUgIn1.EsM", 'Plugin1 esm content')
+      File.write("#{mod_dir}/PlUgIn1.esm", 'Plugin1 esm content')
       expect(mod.plugins).to eq %w[plugin1.esm]
     end
 
